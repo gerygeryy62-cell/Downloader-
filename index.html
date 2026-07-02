@@ -1,0 +1,497 @@
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  Film, Music, Upload, Search, X, Plus, Play, Pause,
+  Tag as TagIcon, Trash2, ListMusic, MoreVertical, FolderPlus, Clock
+} from "lucide-react";
+
+// ---------- design tokens ----------
+const T = {
+  bg: "#14120F",
+  surface: "#1F1B16",
+  surface2: "#262019",
+  line: "#332E27",
+  text: "#F1EAE0",
+  textDim: "#9C9284",
+  accent: "#E3A344",
+  accentDim: "#8B6A2F",
+  accentSoft: "#3A2E1C",
+};
+
+function formatBytes(b) {
+  if (!b) return "0 KB";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+  return `${b.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function formatDuration(s) {
+  if (!s || !isFinite(s)) return "--:--";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+// deterministic pseudo-waveform bars from filename, purely decorative
+function waveformBars(name) {
+  let seed = 0;
+  for (let i = 0; i < name.length; i++) seed = (seed * 31 + name.charCodeAt(i)) % 997;
+  const bars = [];
+  for (let i = 0; i < 40; i++) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    bars.push(20 + (seed % 80));
+  }
+  return bars;
+}
+
+function SprocketStrip() {
+  return (
+    <div
+      className="w-full h-2.5"
+      style={{
+        backgroundColor: T.accentDim,
+        backgroundImage: `radial-gradient(circle, ${T.bg} 2.2px, transparent 2.3px)`,
+        backgroundSize: "13px 100%",
+        backgroundPosition: "center",
+      }}
+    />
+  );
+}
+
+function VideoThumb({ item }) {
+  const canvasRef = useRef(null);
+  const videoRef = useRef(null);
+  const [ready, setReady] = useState(false);
+
+  const drawFrame = useCallback(() => {
+    const v = videoRef.current, c = canvasRef.current;
+    if (!v || !c) return;
+    const ctx = c.getContext("2d");
+    c.width = 320; c.height = 180;
+    try { ctx.drawImage(v, 0, 0, c.width, c.height); } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onLoaded = () => { v.currentTime = Math.min(1, (v.duration || 2) * 0.1); };
+    const onSeeked = () => { drawFrame(); setReady(true); };
+    v.addEventListener("loadedmetadata", onLoaded);
+    v.addEventListener("seeked", onSeeked);
+    return () => {
+      v.removeEventListener("loadedmetadata", onLoaded);
+      v.removeEventListener("seeked", onSeeked);
+    };
+  }, [drawFrame]);
+
+  const handleMove = (e) => {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    v.currentTime = frac * v.duration;
+  };
+
+  const handleLeave = () => {
+    const v = videoRef.current;
+    if (v) v.currentTime = Math.min(1, (v.duration || 2) * 0.1);
+  };
+
+  return (
+    <div
+      className="relative w-full aspect-video overflow-hidden cursor-pointer"
+      style={{ backgroundColor: "#0B0A08" }}
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
+    >
+      <video ref={videoRef} src={item.url} muted preload="metadata" className="hidden" />
+      <canvas ref={canvasRef} className="w-full h-full object-cover" style={{ opacity: ready ? 1 : 0, transition: "opacity .25s" }} />
+      {!ready && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Film size={22} style={{ color: T.accentDim }} />
+        </div>
+      )}
+      <div
+        className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+        style={{ background: "rgba(20,18,15,0.35)" }}
+      >
+        <div className="rounded-full p-3" style={{ backgroundColor: "rgba(20,18,15,0.7)", border: `1px solid ${T.accent}` }}>
+          <Play size={18} fill={T.accent} color={T.accent} />
+        </div>
+      </div>
+      <div
+        className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 text-[11px] rounded"
+        style={{ backgroundColor: "rgba(20,18,15,0.75)", color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}
+      >
+        {formatDuration(item.duration)}
+      </div>
+    </div>
+  );
+}
+
+function AudioThumb({ item }) {
+  const bars = waveformBars(item.name);
+  return (
+    <div
+      className="relative w-full aspect-video overflow-hidden flex items-center justify-center gap-[2px] px-4"
+      style={{ backgroundColor: T.accentSoft }}
+    >
+      {bars.map((h, i) => (
+        <div
+          key={i}
+          className="flex-1 rounded-full"
+          style={{ height: `${h}%`, maxWidth: 3, backgroundColor: T.accentDim, opacity: 0.7 }}
+        />
+      ))}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity" style={{ background: "rgba(20,18,15,0.35)" }}>
+        <div className="rounded-full p-3" style={{ backgroundColor: "rgba(20,18,15,0.7)", border: `1px solid ${T.accent}` }}>
+          <Play size={18} fill={T.accent} color={T.accent} />
+        </div>
+      </div>
+      <div className="absolute top-1.5 left-1.5" style={{ color: T.accent }}>
+        <Music size={14} />
+      </div>
+    </div>
+  );
+}
+
+function MediaCard({ item, playlists, onOpen, onAddTag, onRemoveTag, onDelete, onAddToPlaylist }) {
+  const [tagInput, setTagInput] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [tagOpen, setTagOpen] = useState(false);
+
+  return (
+    <div
+      className="rounded-md overflow-hidden flex flex-col"
+      style={{ backgroundColor: T.surface, border: `1px solid ${T.line}` }}
+    >
+      <SprocketStrip />
+      <div onClick={() => onOpen(item)}>
+        {item.type === "video" ? <VideoThumb item={item} /> : <AudioThumb item={item} />}
+      </div>
+      <SprocketStrip />
+
+      <div className="p-3 flex flex-col gap-2 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <h3
+            className="text-[15px] leading-snug cursor-pointer"
+            style={{ fontFamily: "'Fraunces', serif", color: T.text }}
+            onClick={() => onOpen(item)}
+            title={item.name}
+          >
+            {item.name.length > 42 ? item.name.slice(0, 40) + "…" : item.name}
+          </h3>
+          <div className="relative shrink-0">
+            <button onClick={() => setMenuOpen((s) => !s)} style={{ color: T.textDim }}>
+              <MoreVertical size={16} />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-6 z-10 w-40 rounded-md overflow-hidden shadow-lg"
+                style={{ backgroundColor: T.surface2, border: `1px solid ${T.line}` }}
+              >
+                <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>
+                  Add to playlist
+                </div>
+                {playlists.length === 0 && (
+                  <div className="px-3 py-1.5 text-[13px]" style={{ color: T.textDim }}>No playlists yet</div>
+                )}
+                {playlists.map((p) => (
+                  <button
+                    key={p.id}
+                    className="w-full text-left px-3 py-1.5 text-[13px] hover:opacity-80"
+                    style={{ color: T.text }}
+                    onClick={() => { onAddToPlaylist(item.id, p.id); setMenuOpen(false); }}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+                <div style={{ borderTop: `1px solid ${T.line}` }} />
+                <button
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-1.5"
+                  style={{ color: "#D9776A" }}
+                  onClick={() => { onDelete(item.id); setMenuOpen(false); }}
+                >
+                  <Trash2 size={13} /> Remove
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-[12px]" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>
+          <Clock size={11} />
+          <span>{item.type === "video" ? formatDuration(item.duration) : formatDuration(item.duration)}</span>
+          <span>·</span>
+          <span>{formatBytes(item.size)}</span>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {item.tags.map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+              style={{ backgroundColor: T.accentSoft, color: T.accent, fontFamily: "'IBM Plex Mono', monospace" }}
+            >
+              {t}
+              <X size={10} className="cursor-pointer" onClick={() => onRemoveTag(item.id, t)} />
+            </span>
+          ))}
+          {tagOpen ? (
+            <input
+              autoFocus
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && tagInput.trim()) {
+                  onAddTag(item.id, tagInput.trim());
+                  setTagInput(""); setTagOpen(false);
+                }
+                if (e.key === "Escape") setTagOpen(false);
+              }}
+              onBlur={() => setTagOpen(false)}
+              placeholder="tag + Enter"
+              className="text-[11px] px-2 py-0.5 rounded-full outline-none w-24"
+              style={{ backgroundColor: T.bg, color: T.text, border: `1px solid ${T.accentDim}`, fontFamily: "'IBM Plex Mono', monospace" }}
+            />
+          ) : (
+            <button
+              onClick={() => setTagOpen(true)}
+              className="flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full"
+              style={{ color: T.textDim, border: `1px dashed ${T.line}` }}
+            >
+              <Plus size={10} /> tag
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlayerDrawer({ item, onClose, onAddTag, onRemoveTag }) {
+  const [tagInput, setTagInput] = useState("");
+  if (!item) return null;
+  return (
+    <div
+      className="fixed bottom-0 left-0 right-0 z-30 border-t"
+      style={{ backgroundColor: T.surface, borderColor: T.line }}
+    >
+      <div className="max-w-5xl mx-auto p-4 flex flex-col md:flex-row gap-4">
+        <div className="md:w-[420px] w-full shrink-0" style={{ backgroundColor: "#000" }}>
+          {item.type === "video" ? (
+            <video src={item.url} controls autoPlay className="w-full max-h-64 bg-black" />
+          ) : (
+            <audio src={item.url} controls autoPlay className="w-full mt-6" />
+          )}
+        </div>
+        <div className="flex-1 flex flex-col gap-2 min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <h2 style={{ fontFamily: "'Fraunces', serif", color: T.text }} className="text-lg leading-tight break-words">
+              {item.name}
+            </h2>
+            <button onClick={onClose} style={{ color: T.textDim }}><X size={20} /></button>
+          </div>
+          <div className="flex items-center gap-2 text-[12px]" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>
+            <span>{item.type === "video" ? "VIDEO" : "AUDIO"}</span>
+            <span>·</span>
+            <span>{formatDuration(item.duration)}</span>
+            <span>·</span>
+            <span>{formatBytes(item.size)}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 items-center mt-1">
+            {item.tags.map((t) => (
+              <span key={t} className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+                style={{ backgroundColor: T.accentSoft, color: T.accent, fontFamily: "'IBM Plex Mono', monospace" }}>
+                {t}<X size={10} className="cursor-pointer" onClick={() => onRemoveTag(item.id, t)} />
+              </span>
+            ))}
+            <input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && tagInput.trim()) {
+                  onAddTag(item.id, tagInput.trim());
+                  setTagInput("");
+                }
+              }}
+              placeholder="add tag + Enter"
+              className="text-[11px] px-2 py-0.5 rounded-full outline-none w-28"
+              style={{ backgroundColor: T.bg, color: T.text, border: `1px solid ${T.accentDim}`, fontFamily: "'IBM Plex Mono', monospace" }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MediaLibrary() {
+  const [items, setItems] = useState([]);
+  const [playlists, setPlaylists] = useState([]);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState(null);
+  const [playlistFilter, setPlaylistFilter] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [showNewPlaylist, setShowNewPlaylist] = useState(false);
+  const fileInputRef = useRef(null);
+  const dragCounter = useRef(0);
+
+  const handleFiles = useCallback((fileList) => {
+    Array.from(fileList).forEach((file) => {
+      const isVideo = file.type.startsWith("video/");
+      const isAudio = file.type.startsWith("audio/");
+      if (!isVideo && !isAudio) return;
+      const url = URL.createObjectURL(file);
+      const id = `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      const probe = document.createElement(isVideo ? "video" : "audio");
+      probe.preload = "metadata";
+      probe.src = url;
+      probe.onloadedmetadata = () => {
+        setItems((prev) => [
+          ...prev,
+          {
+            id,
+            name: file.name,
+            size: file.size,
+            type: isVideo ? "video" : "audio",
+            url,
+            duration: probe.duration,
+            tags: [],
+            addedAt: Date.now(),
+          },
+        ]);
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    const onDragEnter = (e) => { e.preventDefault(); dragCounter.current++; setDragging(true); };
+    const onDragOver = (e) => e.preventDefault();
+    const onDragLeave = (e) => {
+      e.preventDefault();
+      dragCounter.current--;
+      if (dragCounter.current <= 0) { setDragging(false); dragCounter.current = 0; }
+    };
+    const onDrop = (e) => {
+      e.preventDefault();
+      dragCounter.current = 0;
+      setDragging(false);
+      if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files);
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [handleFiles]);
+
+  const addTag = (id, tag) => {
+    setItems((prev) => prev.map((it) => it.id === id && !it.tags.includes(tag) ? { ...it, tags: [...it.tags, tag] } : it));
+  };
+  const removeTag = (id, tag) => {
+    setItems((prev) => prev.map((it) => it.id === id ? { ...it, tags: it.tags.filter((t) => t !== tag) } : it));
+  };
+  const deleteItem = (id) => {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+    setPlaylists((prev) => prev.map((p) => ({ ...p, itemIds: p.itemIds.filter((i) => i !== id) })));
+    if (selected?.id === id) setSelected(null);
+  };
+  const createPlaylist = () => {
+    if (!newPlaylistName.trim()) return;
+    setPlaylists((prev) => [...prev, { id: `pl-${Date.now()}`, name: newPlaylistName.trim(), itemIds: [] }]);
+    setNewPlaylistName("");
+    setShowNewPlaylist(false);
+  };
+  const addToPlaylist = (itemId, playlistId) => {
+    setPlaylists((prev) => prev.map((p) => p.id === playlistId && !p.itemIds.includes(itemId)
+      ? { ...p, itemIds: [...p.itemIds, itemId] } : p));
+  };
+
+  const allTags = Array.from(new Set(items.flatMap((it) => it.tags)));
+
+  const filtered = items.filter((it) => {
+    if (typeFilter !== "all" && it.type !== typeFilter) return false;
+    if (tagFilter && !it.tags.includes(tagFilter)) return false;
+    if (playlistFilter) {
+      const p = playlists.find((pl) => pl.id === playlistFilter);
+      if (!p || !p.itemIds.includes(it.id)) return false;
+    }
+    if (search.trim() && !it.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }).sort((a, b) => b.addedAt - a.addedAt);
+
+  return (
+    <div className="min-h-screen w-full" style={{ backgroundColor: T.bg, fontFamily: "'Inter', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        ::selection { background: ${T.accentSoft}; }
+      `}</style>
+
+      {/* drag overlay */}
+      {dragging && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "rgba(20,18,15,0.9)", border: `3px dashed ${T.accent}` }}
+        >
+          <div className="text-center">
+            <Upload size={40} style={{ color: T.accent, margin: "0 auto 12px" }} />
+            <p style={{ fontFamily: "'Fraunces', serif", color: T.text }} className="text-2xl">Drop to add to your library</p>
+            <p style={{ color: T.textDim }} className="text-sm mt-1">Video and audio files stay on this device</p>
+          </div>
+        </div>
+      )}
+
+      {/* header */}
+      <header className="sticky top-0 z-20 border-b" style={{ backgroundColor: T.bg, borderColor: T.line }}>
+        <div className="max-w-7xl mx-auto px-5 py-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="rounded-full p-1.5" style={{ border: `1px solid ${T.accent}` }}>
+              <Film size={18} style={{ color: T.accent }} />
+            </div>
+            <span style={{ fontFamily: "'Fraunces', serif", color: T.text }} className="text-xl tracking-tight">Light Table</span>
+          </div>
+
+          <div className="flex-1 flex items-center gap-2 min-w-0">
+            <div className="relative flex-1 max-w-md">
+              <Search size={15} style={{ color: T.textDim }} className="absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search your library"
+                className="w-full pl-9 pr-3 py-2 rounded-md text-sm outline-none"
+                style={{ backgroundColor: T.surface, color: T.text, border: `1px solid ${T.line}` }}
+              />
+            </div>
+            <div className="flex rounded-md overflow-hidden" style={{ border: `1px solid ${T.line}` }}>
+              {[["all", "All"], ["video", "Video"], ["audio", "Songs"]].map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setTypeFilter(val)}
+                  className="px-3 py-2 text-[13px]"
+                  style={{
+                    backgroundColor: typeFilter === val ? T.accentSoft : "transparent",
+                    color: typeFilter === val ? T.accent : T.textDim,
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2 rounded-md text-sm shrink-0"
+            style={{ backgroundColor: T.accent, color: "#1A1509", fontWeight: 500 }}
+          >
+  
